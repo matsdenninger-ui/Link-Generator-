@@ -1,0 +1,587 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rezensions-Link-Generator</title>
+<meta name="description" content="Google-Maps-Links in Direktlinks zu Rezensionen und Bewertungsfenster umwandeln – inklusive QR-Code.">
+<meta name="robots" content="noindex">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><text y='19' font-size='20'>★</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Familjen+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+
+<style>
+  :root {
+    --ink: #12232A;
+    --ink-soft: #4A6068;
+    --paper: #E9EDEB;
+    --card: #FFFFFF;
+    --line: #CBD6D2;
+    --teal: #0F7B6C;
+    --teal-deep: #0A5A4F;
+    --star: #E8B004;
+    --warn: #8A5A00;
+    --warn-bg: #FBF0D8;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    padding: 32px 20px 80px;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: "IBM Plex Sans", system-ui, -apple-system, sans-serif;
+    font-size: 15px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap { max-width: 760px; margin: 0 auto; }
+
+  header { margin-bottom: 28px; }
+
+  .stars { display: flex; gap: 4px; margin-bottom: 14px; }
+  .stars svg { width: 22px; height: 22px; display: block; }
+  .stars svg path {
+    fill: none;
+    stroke: var(--line);
+    stroke-width: 1.5px;
+    transition: fill .35s ease, stroke .35s ease;
+  }
+  .stars.lit svg path { fill: var(--star); stroke: var(--star); }
+  .stars.lit svg:nth-child(1) path { transition-delay: 0ms; }
+  .stars.lit svg:nth-child(2) path { transition-delay: 70ms; }
+  .stars.lit svg:nth-child(3) path { transition-delay: 140ms; }
+  .stars.lit svg:nth-child(4) path { transition-delay: 210ms; }
+  .stars.lit svg:nth-child(5) path { transition-delay: 280ms; }
+
+  h1 {
+    font-family: "Familjen Grotesk", system-ui, sans-serif;
+    font-size: clamp(28px, 6vw, 40px);
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    line-height: 1.08;
+    margin: 0 0 8px;
+  }
+
+  .lede { color: var(--ink-soft); max-width: 52ch; margin: 0; }
+
+  .panel {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 20px;
+    margin-bottom: 24px;
+  }
+
+  label {
+    display: block;
+    font-family: "Familjen Grotesk", system-ui, sans-serif;
+    font-weight: 600;
+    font-size: 13px;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+    margin-bottom: 8px;
+  }
+
+  textarea {
+    width: 100%;
+    min-height: 132px;
+    resize: vertical;
+    padding: 12px;
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    background: #FBFCFB;
+    color: var(--ink);
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  textarea:focus-visible, button:focus-visible, a:focus-visible {
+    outline: 2px solid var(--teal);
+    outline-offset: 2px;
+  }
+
+  .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 14px; }
+
+  button {
+    font-family: "Familjen Grotesk", system-ui, sans-serif;
+    font-size: 14px;
+    font-weight: 600;
+    border-radius: 3px;
+    border: 1px solid var(--line);
+    background: var(--card);
+    color: var(--ink);
+    padding: 9px 14px;
+    cursor: pointer;
+    transition: background .15s ease, border-color .15s ease;
+  }
+  button:hover { background: #F2F5F4; }
+  button.primary { background: var(--teal); border-color: var(--teal); color: #fff; }
+  button.primary:hover { background: var(--teal-deep); border-color: var(--teal-deep); }
+
+  .hint { font-size: 13px; color: var(--ink-soft); margin: 12px 0 0; }
+
+  .count {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 12px;
+    letter-spacing: .04em;
+    color: var(--ink-soft);
+    margin: 0 0 12px;
+  }
+
+  .result {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-left: 3px solid var(--teal);
+    border-radius: 4px;
+    padding: 16px 18px;
+    margin-bottom: 12px;
+  }
+  .result.bad { border-left-color: var(--warn); background: var(--warn-bg); }
+
+  .result h2 {
+    font-family: "Familjen Grotesk", system-ui, sans-serif;
+    font-size: 18px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    margin: 0 0 2px;
+  }
+
+  .meta {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 11px;
+    color: var(--ink-soft);
+    word-break: break-all;
+    margin: 0 0 14px;
+  }
+
+  .link-row {
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+    padding: 8px 0;
+    border-top: 1px dashed var(--line);
+  }
+  .link-row .body { flex: 1; min-width: 0; }
+  .link-row .kind { font-size: 12px; font-weight: 600; color: var(--teal-deep); display: block; }
+  .link-row a {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 11.5px;
+    color: var(--ink-soft);
+    word-break: break-all;
+    text-decoration: none;
+    border-bottom: 1px solid var(--line);
+  }
+  .link-row a:hover { color: var(--ink); border-bottom-color: var(--ink); }
+  .link-row button { padding: 5px 10px; font-size: 12px; flex-shrink: 0; }
+
+  .qr {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px dashed var(--line);
+    display: none;
+  }
+  .qr.open { display: block; }
+  .qr svg { width: 168px; height: 168px; display: block; }
+  .qr .cap { font-size: 12px; color: var(--ink-soft); margin: 6px 0 0; }
+
+  .card-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+
+  .saved-item {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    justify-content: space-between;
+    padding: 9px 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .saved-item:last-child { border-bottom: none; }
+  .saved-item span { font-size: 14px; }
+  .saved-item a { color: var(--teal-deep); font-size: 13px; }
+
+  .empty { color: var(--ink-soft); font-size: 14px; margin: 0; }
+
+  footer {
+    margin-top: 36px;
+    padding-top: 18px;
+    border-top: 1px solid var(--line);
+    font-size: 13px;
+    color: var(--ink-soft);
+  }
+  footer code {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 12px;
+    background: #DDE4E1;
+    padding: 1px 5px;
+    border-radius: 2px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .stars svg path { transition: none; }
+  }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header>
+    <div class="stars" id="stars"></div>
+    <h1>Rezensions-Link-Generator</h1>
+    <p class="lede">Google-Maps-Links einfügen, fertige Direktlinks zu den Rezensionen und zum Bewertungsfenster herausbekommen. Läuft komplett im Browser, kein API-Schlüssel nötig.</p>
+  </header>
+
+  <div class="panel">
+    <label for="input">Maps-Links, Place-IDs oder CIDs – einer pro Zeile</label>
+    <textarea id="input" spellcheck="false" placeholder="https://www.google.com/maps/place/Musterfirma+GmbH/@51.22,6.77,17z/data=!3m1!4b1!4m6!3m5!1s0x47b8c8f1a2b3c4d5:0x1234567890abcdef
+ChIJN1t_tDeuEmsRUsoyG83frY4"></textarea>
+    <div class="row">
+      <button class="primary" id="go">Links erzeugen</button>
+      <button id="clear">Eingabe leeren</button>
+      <button id="csv" hidden>Als CSV speichern</button>
+      <button id="copyAll" hidden>Alle Bewertungslinks kopieren</button>
+    </div>
+    <p class="hint">Kurzlinks wie <strong>maps.app.goo.gl/…</strong> lassen sich hier nicht auflösen. Kurzlink einmal im Browser öffnen und die lange Adresse aus der Adresszeile kopieren.</p>
+  </div>
+
+  <p class="count" id="count" hidden></p>
+  <div id="results"></div>
+
+  <div class="panel">
+    <label>Gespeicherte Objekte</label>
+    <div id="saved"><p class="empty">Noch nichts gespeichert. Bei jedem Ergebnis auf „Merken“ tippen.</p></div>
+  </div>
+
+  <footer>
+    Rezensionen ansehen: <code>search.google.com/local/reviews?placeid=…</code> · Bewertung schreiben: <code>search.google.com/local/writereview?placeid=…</code> · Bei Hex-Kennungen nutzt das Tool die Maps-Variante <code>/maps/place//data=…</code>. Gespeicherte Objekte liegen nur in diesem Browser.
+  </footer>
+</div>
+
+<script src="/vendor/qrcode.js"></script>
+<script>
+(function () {
+  "use strict";
+
+  var STAR_PATH = "M12 2.5l2.9 5.9 6.5.9-4.7 4.6 1.1 6.5L12 17.4 6.2 20.4l1.1-6.5L2.6 9.3l6.5-.9z";
+  var starsEl = document.getElementById("stars");
+  for (var i = 0; i < 5; i++) {
+    starsEl.insertAdjacentHTML("beforeend",
+      '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="' + STAR_PATH + '"/></svg>');
+  }
+
+  var input = document.getElementById("input");
+  var results = document.getElementById("results");
+  var countEl = document.getElementById("count");
+  var csvBtn = document.getElementById("csv");
+  var copyAllBtn = document.getElementById("copyAll");
+  var savedEl = document.getElementById("saved");
+
+  var current = [];
+  var saved = [];
+  var STORE_KEY = "rezensionslinks.objekte";
+
+  /* ---------- Parsen ---------- */
+
+  function nameFrom(line) {
+    var m = line.match(/maps\/place\/([^\/@?#]+)/);
+    if (!m) return "";
+    try {
+      var n = decodeURIComponent(m[1].replace(/\+/g, " ")).trim();
+      return n === "" || /^data=/.test(n) ? "" : n;
+    } catch (e) { return ""; }
+  }
+
+  function parse(line) {
+    var out = { input: line, name: nameFrom(line) };
+
+    var pid = line.match(/place_?id[:=]([A-Za-z0-9_\-]{15,})/i) ||
+              line.match(/!1s(Ch[A-Za-z0-9_\-]{15,})/) ||
+              (/^[A-Za-z0-9_\-]{20,}$/.test(line.trim()) ? [null, line.trim()] : null);
+    if (pid) { out.placeId = pid[1]; return out; }
+
+    var ftid = line.match(/!1s(0x[0-9a-fA-F]+:0x[0-9a-fA-F]+)/) ||
+               line.match(/[?&]ftid=(0x[0-9a-fA-F]+:0x[0-9a-fA-F]+)/) ||
+               line.match(/^(0x[0-9a-fA-F]+:0x[0-9a-fA-F]+)$/);
+    if (ftid) {
+      out.ftid = ftid[1].toLowerCase();
+      try { out.cid = BigInt(out.ftid.split(":")[1]).toString(); } catch (e) {}
+      return out;
+    }
+
+    var cid = line.match(/[?&]cid=(\d{5,})/) || (/^\d{10,}$/.test(line.trim()) ? [null, line.trim()] : null);
+    if (cid) { out.cid = cid[1]; return out; }
+
+    out.error = /goo\.gl|maps\.app/.test(line) ? "kurzlink" : "unbekannt";
+    return out;
+  }
+
+  function build(p) {
+    if (p.placeId) {
+      return {
+        reviews: "https://search.google.com/local/reviews?placeid=" + p.placeId,
+        write: "https://search.google.com/local/writereview?placeid=" + p.placeId,
+        id: "Place ID · " + p.placeId
+      };
+    }
+    if (p.ftid) {
+      return {
+        reviews: "https://www.google.com/maps/place//data=!4m4!3m3!1s" + p.ftid + "!9m1!1b1",
+        write: "https://www.google.com/maps/place//data=!4m3!3m2!1s" + p.ftid + "!12e1",
+        id: "Maps-Kennung · " + p.ftid + (p.cid ? " · CID " + p.cid : "")
+      };
+    }
+    if (p.cid) {
+      return { place: "https://maps.google.com/?cid=" + p.cid, id: "CID · " + p.cid, partial: true };
+    }
+    return null;
+  }
+
+  /* ---------- Ausgabe ---------- */
+
+  function esc(s) {
+    return String(s).replace(/[&<>"]/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c];
+    });
+  }
+
+  function linkRow(kind, url) {
+    return '<div class="link-row"><div class="body"><span class="kind">' + kind + '</span>' +
+      '<a href="' + esc(url) + '" target="_blank" rel="noopener">' + esc(url) + '</a></div>' +
+      '<button data-copy="' + esc(url) + '">Kopieren</button></div>';
+  }
+
+  function render() {
+    results.innerHTML = "";
+    if (!current.length) {
+      countEl.hidden = true; csvBtn.hidden = true; copyAllBtn.hidden = true;
+      return;
+    }
+
+    var ok = current.filter(function (r) { return r.links && !r.links.partial; }).length;
+    countEl.hidden = false;
+    countEl.textContent = ok + " von " + current.length + " Zeilen vollständig umgewandelt";
+    csvBtn.hidden = ok === 0;
+    copyAllBtn.hidden = ok === 0;
+
+    current.forEach(function (r, idx) {
+      var el = document.createElement("div");
+      el.className = "result" + (r.links && !r.links.partial ? "" : " bad");
+      var title = r.name || (r.links ? "Ohne Namen im Link" : "Nicht erkannt");
+      var html = "<h2>" + esc(title) + "</h2>";
+
+      if (!r.links) {
+        html += '<p class="meta">' + esc(r.input.slice(0, 120)) + "</p>";
+        html += r.error === "kurzlink"
+          ? "<p>Kurzlink. Einmal im Browser öffnen und die lange Adresse aus der Adresszeile hier einfügen.</p>"
+          : "<p>Keine Kennung gefunden. Den Eintrag in Google Maps öffnen und die vollständige Adresszeile kopieren.</p>";
+      } else if (r.links.partial) {
+        html += '<p class="meta">' + esc(r.links.id) + "</p>";
+        html += linkRow("Eintrag in Maps öffnen", r.links.place);
+        html += "<p>Aus der CID allein lässt sich kein Bewertungslink bauen. Den Eintrag über den Link öffnen und die dann sichtbare lange Adresse noch einmal einfügen.</p>";
+      } else {
+        html += '<p class="meta">' + esc(r.links.id) + "</p>";
+        html += linkRow("Rezensionen ansehen", r.links.reviews);
+        html += linkRow("Bewertung schreiben", r.links.write);
+        html += '<div class="card-actions">' +
+          '<button data-qr="' + idx + '">QR-Code für Bewertung</button>' +
+          '<button data-save="' + idx + '">Merken</button>' +
+          '<button data-png="' + idx + '">QR als Bild laden</button></div>' +
+          '<div class="qr" id="qr' + idx + '"></div>';
+      }
+
+      el.innerHTML = html;
+      results.appendChild(el);
+    });
+  }
+
+  /* ---------- QR ---------- */
+
+  function qrSvg(text) {
+    if (typeof qrcode === "undefined") return null;
+    var q = qrcode(0, "M");
+    q.addData(text);
+    q.make();
+    return q.createSvgTag({ cellSize: 4, margin: 2, scalable: true });
+  }
+
+  function qrPng(text, name) {
+    var svg = qrSvg(text);
+    if (!svg) return;
+    var img = new Image();
+    var blob = new Blob([svg], { type: "image/svg+xml;charset=utf-8" });
+    var url = URL.createObjectURL(blob);
+    img.onload = function () {
+      var size = 600;
+      var c = document.createElement("canvas");
+      c.width = size; c.height = size;
+      var ctx = c.getContext("2d");
+      ctx.fillStyle = "#fff";
+      ctx.fillRect(0, 0, size, size);
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(img, 0, 0, size, size);
+      URL.revokeObjectURL(url);
+      var a = document.createElement("a");
+      a.href = c.toDataURL("image/png");
+      a.download = "qr-" + name.replace(/[^\wäöüÄÖÜß\- ]/g, "").replace(/\s+/g, "-").toLowerCase() + ".png";
+      a.click();
+    };
+    img.src = url;
+  }
+
+  /* ---------- Aktionen ---------- */
+
+  function flash(btn, text) {
+    var old = btn.textContent;
+    btn.textContent = text;
+    setTimeout(function () { btn.textContent = old; }, 1400);
+  }
+
+  function fallbackCopy(text, done) {
+    var ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand("copy"); done(); } catch (e) {}
+    document.body.removeChild(ta);
+  }
+
+  function copy(text, btn) {
+    var done = function () { flash(btn, "Kopiert"); };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(done, function () { fallbackCopy(text, done); });
+    } else {
+      fallbackCopy(text, done);
+    }
+  }
+
+  results.addEventListener("click", function (ev) {
+    var b = ev.target.closest("button");
+    if (!b) return;
+
+    if (b.dataset.copy) { copy(b.dataset.copy, b); return; }
+
+    if (b.dataset.png) {
+      var r0 = current[+b.dataset.png];
+      qrPng(r0.links.write, r0.name || "objekt");
+      flash(b, "Wird geladen");
+      return;
+    }
+
+    if (b.dataset.qr) {
+      var idx = +b.dataset.qr;
+      var box = document.getElementById("qr" + idx);
+      if (box.classList.contains("open")) {
+        box.classList.remove("open");
+        b.textContent = "QR-Code für Bewertung";
+        return;
+      }
+      if (!box.dataset.built) {
+        var svg = qrSvg(current[idx].links.write);
+        box.innerHTML = svg
+          ? svg + '<p class="cap">Führt direkt zum Bewertungsfenster – für Aushang, Übergabemappe oder Mail-Signatur.</p>'
+          : '<p class="cap">QR-Bibliothek nicht gefunden. Liegt vendor/qrcode.js im Projekt?</p>';
+        box.dataset.built = "1";
+      }
+      box.classList.add("open");
+      b.textContent = "QR-Code ausblenden";
+      return;
+    }
+
+    if (b.dataset.save) {
+      var r = current[+b.dataset.save];
+      saved = saved.filter(function (s) { return s.write !== r.links.write; });
+      saved.unshift({ name: r.name || "Ohne Namen", reviews: r.links.reviews, write: r.links.write });
+      persist();
+      renderSaved();
+      flash(b, "Gemerkt");
+    }
+  });
+
+  document.getElementById("go").addEventListener("click", function () {
+    var lines = input.value.split(/\r?\n/).map(function (l) { return l.trim(); }).filter(Boolean);
+    current = lines.map(function (l) {
+      var p = parse(l);
+      p.links = build(p);
+      return p;
+    });
+    render();
+    starsEl.classList.remove("lit");
+    void starsEl.offsetWidth;
+    if (current.some(function (r) { return r.links && !r.links.partial; })) starsEl.classList.add("lit");
+  });
+
+  document.getElementById("clear").addEventListener("click", function () {
+    input.value = "";
+    current = [];
+    render();
+    starsEl.classList.remove("lit");
+    input.focus();
+  });
+
+  copyAllBtn.addEventListener("click", function () {
+    var text = current.filter(function (r) { return r.links && !r.links.partial; })
+      .map(function (r) { return (r.name || "Ohne Namen") + "\t" + r.links.write; }).join("\n");
+    copy(text, copyAllBtn);
+  });
+
+  csvBtn.addEventListener("click", function () {
+    var rows = [["Name", "Rezensionen ansehen", "Bewertung schreiben"]];
+    current.filter(function (r) { return r.links && !r.links.partial; })
+      .forEach(function (r) { rows.push([r.name || "Ohne Namen", r.links.reviews, r.links.write]); });
+    var csv = rows.map(function (row) {
+      return row.map(function (c) { return '"' + String(c).replace(/"/g, '""') + '"'; }).join(";");
+    }).join("\n");
+    var blob = new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8" });
+    var a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "rezensions-links.csv";
+    a.click();
+    URL.revokeObjectURL(a.href);
+    flash(csvBtn, "Gespeichert");
+  });
+
+  /* ---------- Merkliste ---------- */
+
+  function renderSaved() {
+    if (!saved.length) {
+      savedEl.innerHTML = '<p class="empty">Noch nichts gespeichert. Bei jedem Ergebnis auf „Merken“ tippen.</p>';
+      return;
+    }
+    savedEl.innerHTML = saved.map(function (s, i) {
+      return '<div class="saved-item"><span>' + esc(s.name) + "</span>" +
+        '<span><a href="' + esc(s.write) + '" target="_blank" rel="noopener">Bewerten</a> · ' +
+        '<a href="' + esc(s.reviews) + '" target="_blank" rel="noopener">Ansehen</a> · ' +
+        '<button data-del="' + i + '">Entfernen</button></span></div>';
+    }).join("");
+  }
+
+  savedEl.addEventListener("click", function (ev) {
+    var b = ev.target.closest("button");
+    if (!b || b.dataset.del === undefined) return;
+    saved.splice(+b.dataset.del, 1);
+    persist();
+    renderSaved();
+  });
+
+  function persist() {
+    try { localStorage.setItem(STORE_KEY, JSON.stringify(saved)); } catch (e) {}
+  }
+
+  function load() {
+    try {
+      var raw = localStorage.getItem(STORE_KEY);
+      if (raw) saved = JSON.parse(raw) || [];
+    } catch (e) { saved = []; }
+    renderSaved();
+  }
+
+  load();
+})();
+</script>
+</body>
+</html>
