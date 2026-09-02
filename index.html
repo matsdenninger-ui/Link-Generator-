@@ -454,8 +454,8 @@ ChIJN1t_tDeuEmsRUsoyG83frY4"></textarea>
 
       if (!r.links) {
         html += '<p class="meta">' + esc(r.input.slice(0, 120)) + "</p>";
-        html += r.error === "kurzlink"
-          ? "<p>Kurzlink. Einmal im Browser öffnen und die lange Adresse aus der Adresszeile hier einfügen.</p>"
+        html += r.shortlink
+          ? "<p>Kurzlink liess sich nicht auflösen. Einmal im Browser öffnen und die lange Adresse aus der Adresszeile hier einfügen.</p>"
           : "<p>Keine Kennung gefunden. Den Eintrag in Google Maps öffnen und die vollständige Adresszeile kopieren.</p>";
       } else if (r.links.partial) {
         html += '<p class="meta">' + esc(r.links.id) + "</p>";
@@ -582,51 +582,55 @@ ChIJN1t_tDeuEmsRUsoyG83frY4"></textarea>
     }
   });
 
-  document.getElementById("go").addEventListener("click", function () {
+  var goBtn = document.getElementById("go");
+
+  /* Kurzlinks kann der Browser nicht selbst auflösen (CORS). Das übernimmt
+     /api/resolve-shortlink. Fehlt der Endpunkt – etwa beim Öffnen als lokale
+     Datei – bleibt die Zeile unverändert und landet im Kurzlink-Hinweis. */
+  function resolveShortlink(line) {
+    return fetch("/api/resolve-shortlink?url=" + encodeURIComponent(line))
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) {
+        if (!data || !data.url) return line;
+        // Steckt die Kennung nur im HTML, liefert die API sie separat mit.
+        return data.id ? data.url + " " + data.id : data.url;
+      })
+      .catch(function () { return line; });
+  }
+
+  goBtn.addEventListener("click", function () {
     var lines = input.value.split(/\r?\n/).map(function (l) { return l.trim(); }).filter(Boolean);
-    var shortlinks = [];
+    var hasShortlinks = lines.some(function (l) { return /goo\.gl|maps\.app/.test(l); });
 
-    // First pass: identify shortlinks
-    lines.forEach(function (l, i) {
-      if (/goo\.gl|maps\.app/.test(l)) {
-        shortlinks.push({ index: i, url: l });
-      }
-    });
-
-    // Resolve shortlinks if any
-    if (shortlinks.length > 0) {
-      Promise.all(shortlinks.map(function (sl) {
-        return fetch("/api/resolve-shortlink?url=" + encodeURIComponent(sl.url))
-          .then(function (r) { return r.json(); })
-          .then(function (data) {
-            if (data.url) {
-              lines[sl.index] = data.url;
-            }
-            return null;
-          })
-          .catch(function (e) {
-            console.warn("Failed to resolve shortlink:", e);
-          });
-      })).then(function () {
-        // Parse and process after all shortlinks are resolved
-        processLinks(lines);
-      });
-    } else {
+    if (!hasShortlinks) {
       processLinks(lines);
+      return;
     }
 
-    function processLinks(resolvedLines) {
-      current = resolvedLines.map(function (l) {
-        var p = parse(l);
-        p.links = build(p);
-        return p;
-      });
-      render();
-      starsEl.classList.remove("lit");
-      void starsEl.offsetWidth;
-      if (current.some(function (r) { return r.links && !r.links.partial; })) starsEl.classList.add("lit");
-    }
+    var label = goBtn.textContent;
+    goBtn.disabled = true;
+    goBtn.textContent = "Kurzlinks werden aufgelöst …";
+
+    Promise.all(lines.map(function (l) {
+      return /goo\.gl|maps\.app/.test(l) ? resolveShortlink(l) : l;
+    })).then(function (resolved) {
+      goBtn.disabled = false;
+      goBtn.textContent = label;
+      processLinks(resolved);
+    });
   });
+
+  function processLinks(lines) {
+    current = lines.map(function (l) {
+      var p = parse(l);
+      p.links = build(p);
+      return p;
+    });
+    render();
+    starsEl.classList.remove("lit");
+    void starsEl.offsetWidth;
+    if (current.some(function (r) { return r.links && !r.links.partial; })) starsEl.classList.add("lit");
+  }
 
   document.getElementById("clear").addEventListener("click", function () {
     input.value = "";
@@ -662,40 +666,40 @@ ChIJN1t_tDeuEmsRUsoyG83frY4"></textarea>
 
   function renderSaved() {
     if (!saved.length) {
-      savedEl.innerHTML = '<p class=”empty”>Noch nichts gespeichert. Bei jedem Ergebnis auf „Merken” tippen.</p>';
+      savedEl.innerHTML = '<p class="empty">Noch nichts gespeichert. Bei jedem Ergebnis auf „Merken“ tippen.</p>';
       return;
     }
     savedEl.innerHTML = saved.map(function (s, i) {
-      return '<div class=”saved-item”><span>' + esc(s.name) + “</span>” +
-        '<span><a href=”' + esc(s.write) + '” target=”_blank” rel=”noopener”>Bewerten</a> · ' +
-        '<a href=”' + esc(s.reviews) + '” target=”_blank” rel=”noopener”>Ansehen</a> · ' +
-        '<button data-saved-qr=”' + i + '”>QR</button> · ' +
-        '<button data-del=”' + i + '”>Entfernen</button></span>' +
-        '<div class=”qr” id=”saved-qr' + i + '”></div></div>';
-    }).join(“”);
+      return '<div class="saved-item"><span>' + esc(s.name) + "</span>" +
+        '<span><a href="' + esc(s.write) + '" target="_blank" rel="noopener">Bewerten</a> · ' +
+        '<a href="' + esc(s.reviews) + '" target="_blank" rel="noopener">Ansehen</a> · ' +
+        '<button data-saved-qr="' + i + '">QR-Code</button> · ' +
+        '<button data-del="' + i + '">Entfernen</button></span>' +
+        '<div class="qr" id="saved-qr' + i + '"></div></div>';
+    }).join("");
   }
 
-  savedEl.addEventListener(“click”, function (ev) {
-    var b = ev.target.closest(“button”);
+  savedEl.addEventListener("click", function (ev) {
+    var b = ev.target.closest("button");
     if (!b) return;
 
     if (b.dataset.savedQr !== undefined) {
       var idx = +b.dataset.savedQr;
-      var box = document.getElementById(“saved-qr” + idx);
-      if (box.classList.contains(“open”)) {
-        box.classList.remove(“open”);
-        b.textContent = “QR”;
+      var box = document.getElementById("saved-qr" + idx);
+      if (box.classList.contains("open")) {
+        box.classList.remove("open");
+        b.textContent = "QR-Code";
         return;
       }
       if (!box.dataset.built) {
         var svg = qrSvg(saved[idx].write);
         box.innerHTML = svg
-          ? svg + '<p class=”cap”>Führt direkt zum Bewertungsfenster.</p>'
-          : '<p class=”cap”>QR-Bibliothek nicht gefunden. Liegt vendor/qrcode.js im Projekt?</p>';
-        box.dataset.built = “1”;
+          ? svg + '<p class="cap">Führt direkt zum Bewertungsfenster.</p>'
+          : '<p class="cap">QR-Bibliothek nicht gefunden. Liegt vendor/qrcode.js im Projekt?</p>';
+        box.dataset.built = "1";
       }
-      box.classList.add(“open”);
-      b.textContent = “QR ausblenden”;
+      box.classList.add("open");
+      b.textContent = "QR ausblenden";
       return;
     }
 
