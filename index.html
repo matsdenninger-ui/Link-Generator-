@@ -262,17 +262,17 @@
   .card-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
 
   .saved-item {
-    display: flex;
-    gap: 10px;
-    align-items: center;
-    justify-content: space-between;
+    display: block;
     padding: 10px 0;
     border-bottom: 1px solid var(--border);
   }
   .saved-item:last-child { border-bottom: none; }
-  .saved-item span { font-size: 14px; }
+  .saved-item > span:first-child { font-size: 14px; display: block; margin-bottom: 6px; }
+  .saved-item > span:last-of-type { font-size: 13px; }
   .saved-item a { color: var(--gold-soft); font-size: 13px; }
   .saved-item a:hover { color: var(--gold-bright); }
+  .saved-item button { font-size: 12px; padding: 4px 10px; }
+  .saved-item .qr { margin-top: 10px; padding-top: 10px; }
 
   .empty { color: var(--text-muted); font-size: 14px; margin: 0; }
 
@@ -624,23 +624,48 @@ ChIJN1t_tDeuEmsRUsoyG83frY4"></textarea>
 
   function renderSaved() {
     if (!saved.length) {
-      savedEl.innerHTML = '<p class="empty">Noch nichts gespeichert. Bei jedem Ergebnis auf „Merken“ tippen.</p>';
+      savedEl.innerHTML = '<p class=”empty”>Noch nichts gespeichert. Bei jedem Ergebnis auf „Merken” tippen.</p>';
       return;
     }
     savedEl.innerHTML = saved.map(function (s, i) {
-      return '<div class="saved-item"><span>' + esc(s.name) + "</span>" +
-        '<span><a href="' + esc(s.write) + '" target="_blank" rel="noopener">Bewerten</a> · ' +
-        '<a href="' + esc(s.reviews) + '" target="_blank" rel="noopener">Ansehen</a> · ' +
-        '<button data-del="' + i + '">Entfernen</button></span></div>';
-    }).join("");
+      return '<div class=”saved-item”><span>' + esc(s.name) + “</span>” +
+        '<span><a href=”' + esc(s.write) + '” target=”_blank” rel=”noopener”>Bewerten</a> · ' +
+        '<a href=”' + esc(s.reviews) + '” target=”_blank” rel=”noopener”>Ansehen</a> · ' +
+        '<button data-saved-qr=”' + i + '”>QR</button> · ' +
+        '<button data-del=”' + i + '”>Entfernen</button></span>' +
+        '<div class=”qr” id=”saved-qr' + i + '”></div></div>';
+    }).join(“”);
   }
 
-  savedEl.addEventListener("click", function (ev) {
-    var b = ev.target.closest("button");
-    if (!b || b.dataset.del === undefined) return;
-    saved.splice(+b.dataset.del, 1);
-    persist();
-    renderSaved();
+  savedEl.addEventListener(“click”, function (ev) {
+    var b = ev.target.closest(“button”);
+    if (!b) return;
+
+    if (b.dataset.savedQr !== undefined) {
+      var idx = +b.dataset.savedQr;
+      var box = document.getElementById(“saved-qr” + idx);
+      if (box.classList.contains(“open”)) {
+        box.classList.remove(“open”);
+        b.textContent = “QR”;
+        return;
+      }
+      if (!box.dataset.built) {
+        var svg = qrSvg(saved[idx].write);
+        box.innerHTML = svg
+          ? svg + '<p class=”cap”>Führt direkt zum Bewertungsfenster.</p>'
+          : '<p class=”cap”>QR-Bibliothek nicht gefunden. Liegt vendor/qrcode.js im Projekt?</p>';
+        box.dataset.built = “1”;
+      }
+      box.classList.add(“open”);
+      b.textContent = “QR ausblenden”;
+      return;
+    }
+
+    if (b.dataset.del !== undefined) {
+      saved.splice(+b.dataset.del, 1);
+      persist();
+      renderSaved();
+    }
   });
 
   function persist() {
