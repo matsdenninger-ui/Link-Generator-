@@ -320,7 +320,7 @@ ChIJN1t_tDeuEmsRUsoyG83frY4"></textarea>
       <button id="csv" hidden>Als CSV speichern</button>
       <button id="copyAll" hidden>Alle Bewertungslinks kopieren</button>
     </div>
-    <p class="hint">Kurzlinks wie <strong>maps.app.goo.gl/…</strong> werden automatisch aufgelöst. Das kann eine Sekunde dauern.</p>
+    <p class="hint">Kurzlinks wie <strong>maps.app.goo.gl/…</strong> werden automatisch aufgelöst. Wo möglich sucht das Tool die Place ID heraus – die daraus gebauten Links öffnen das Bewertungsfenster auch ohne installierte Maps-App. Das dauert einen Moment.</p>
   </div>
 
   <p class="count" id="count" hidden></p>
@@ -585,39 +585,60 @@ ChIJN1t_tDeuEmsRUsoyG83frY4"></textarea>
 
   var goBtn = document.getElementById("go");
 
-  /* Kurzlinks kann der Browser nicht selbst auflösen (CORS). Das übernimmt
-     /api/resolve-shortlink. Fehlt der Endpunkt – etwa beim Öffnen als lokale
-     Datei – bleibt die Zeile unverändert und landet im Kurzlink-Hinweis. */
-  function resolveShortlink(line) {
-    return fetch("/api/resolve-shortlink?url=" + encodeURIComponent(line))
+  /* Beides kann der Browser nicht selbst: Kurzlinks auflösen und die Place ID
+     einer Eintragung nachschlagen. Cross-Origin-Requests zu Google blockt CORS,
+     also fragt beides die Serverless Function. Antwortet sie nicht — etwa beim
+     Öffnen als lokale Datei — bleibt die Zeile unverändert. */
+  function apiLookup(url) {
+    return fetch("/api/resolve-shortlink?url=" + encodeURIComponent(url))
       .then(function (r) { return r.ok ? r.json() : null; })
-      .then(function (data) {
-        if (!data || !data.url) return line;
-        // Steckt die Kennung nur im HTML, liefert die API sie separat mit.
-        return data.id ? data.url + " " + data.id : data.url;
-      })
-      .catch(function () { return line; });
+      .catch(function () { return null; });
+  }
+
+  /* Eine Eingabezeile so weit anreichern, dass ein browserfähiger Bewertungslink
+     entsteht. Entscheidend ist die Place ID: nur aus ihr baut build() die
+     search.google.com-Adresse, die auch ohne Maps-App zum Bewerten führt. */
+  function prepare(line) {
+    var resolved = /goo\.gl|maps\.app/.test(line)
+      ? apiLookup(line).then(function (d) {
+          if (!d || !d.url) return line;
+          if (d.placeId) return d.url + " place_id:" + d.placeId;
+          return d.id ? d.url + " " + d.id : d.url;
+        })
+      : Promise.resolve(line);
+
+    return resolved.then(function (l) {
+      var p = parse(l);
+      if (p.placeId) return l;
+
+      // Nur Hex-Kennung oder CID: einmal nachschlagen, ob es dazu eine Place ID gibt.
+      var probe = p.ftid ? "https://www.google.com/maps/place//data=!4m2!3m1!1s" + p.ftid
+                : p.cid ? "https://maps.google.com/?cid=" + p.cid
+                : null;
+      if (!probe) return l;
+
+      return apiLookup(probe).then(function (d) {
+        return d && d.placeId ? l + " place_id:" + d.placeId : l;
+      });
+    });
   }
 
   goBtn.addEventListener("click", function () {
     var lines = input.value.split(/\r?\n/).map(function (l) { return l.trim(); }).filter(Boolean);
-    var hasShortlinks = lines.some(function (l) { return /goo\.gl|maps\.app/.test(l); });
 
-    if (!hasShortlinks) {
+    if (!lines.length) {
       processLinks(lines);
       return;
     }
 
     var label = goBtn.textContent;
     goBtn.disabled = true;
-    goBtn.textContent = "Kurzlinks werden aufgelöst …";
+    goBtn.textContent = "Links werden geprüft …";
 
-    Promise.all(lines.map(function (l) {
-      return /goo\.gl|maps\.app/.test(l) ? resolveShortlink(l) : l;
-    })).then(function (resolved) {
+    Promise.all(lines.map(prepare)).then(function (prepared) {
       goBtn.disabled = false;
       goBtn.textContent = label;
-      processLinks(resolved);
+      processLinks(prepared);
     });
   });
 

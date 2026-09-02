@@ -1,11 +1,16 @@
 /**
- * Löst Google-Maps-Kurzlinks (maps.app.goo.gl/…, goo.gl/maps/…) serverseitig auf.
- * Im Browser geht das nicht: Cross-Origin-Requests zu Google werden von CORS geblockt.
+ * Holt zu einem Google-Maps-Link serverseitig zwei Dinge, die der Browser selbst
+ * nicht bekommt (Cross-Origin-Requests zu Google blockt CORS):
  *
- * Zwei Stufen, weil die Weiterleitung allein oft nicht reicht — in der EU landet
- * ein serverseitiger Abruf regelmäßig auf einer Consent-Seite ohne Kennung in der URL:
- *   1. Weiterleitung folgen, Ziel-URL prüfen.
- *   2. Reicht die nicht, das HTML nach einer Kennung durchsuchen.
+ *   1. Die aufgelöste Adresse hinter einem Kurzlink (maps.app.goo.gl/…).
+ *   2. Die Place ID der Eintragung.
+ *
+ * Punkt 2 ist der wichtigere. Aus einer Place ID lässt sich
+ * search.google.com/local/writereview?placeid=… bauen, und das öffnet den
+ * Bewertungsdialog auch im normalen Browser. Die aus einer Hex-Kennung gebaute
+ * Alternative google.com/maps/place//data=…!12e1 ist dagegen ein Deeplink in die
+ * Maps-App — ohne installierte App landet man dort schnell bei einer
+ * Installationsaufforderung statt beim Bewerten.
  */
 
 const ALLOWED_HOSTS = new Set([
@@ -15,8 +20,7 @@ const ALLOWED_HOSTS = new Set([
   "maps.google.com"
 ]);
 
-// Dieselben Muster, die das Frontend kennt — eine davon muss drin sein,
-// damit sich ein Bewertungslink bauen lässt.
+// Kennungen, aus denen das Frontend irgendeinen Link bauen kann.
 const ID_PATTERNS = [
   /!1s(0x[0-9a-f]+:0x[0-9a-f]+)/i,
   /[?&]ftid=(0x[0-9a-f]+:0x[0-9a-f]+)/i,
@@ -25,8 +29,17 @@ const ID_PATTERNS = [
   /[?&]cid=(\d{5,})/
 ];
 
-function hasUsableId(text) {
-  return ID_PATTERNS.some(function (re) { return re.test(text); });
+/* Place IDs von Unternehmen beginnen praktisch immer mit ChIJ. Andere Präfixe
+   (GhIJ, Ei…) stehen für Adressen und Wegpunkte, die sich nicht bewerten
+   lassen — die interessieren hier also nicht. */
+const PLACE_ID_RE = /\b(ChIJ[A-Za-z0-9_-]{16,})/;
+
+function findId(text) {
+  for (const re of ID_PATTERNS) {
+    const hit = text.match(re);
+    if (hit) return hit[0];
+  }
+  return null;
 }
 
 export default async function handler(req, res) {
@@ -61,21 +74,33 @@ export default async function handler(req, res) {
       }
     });
 
-    // Stufe 1: Die Ziel-URL trägt die Kennung meistens schon.
-    if (hasUsableId(response.url)) {
-      return res.status(200).json({ url: response.url });
+    const finalUrl = response.url;
+    const out = { url: finalUrl };
+
+    // Steht die Place ID schon in der Ziel-URL, reicht das.
+    const inUrl = finalUrl.match(PLACE_ID_RE);
+    if (inUrl) {
+      out.placeId = inUrl[1];
+      return res.status(200).json(out);
     }
 
-    // Stufe 2: Consent-Seite oder Weiterleitung ohne Kennung — im HTML nachsehen.
+    // Sonst im HTML nachsehen — dort steht sie fast immer.
     const html = await response.text();
-    for (const re of ID_PATTERNS) {
-      const hit = html.match(re);
-      if (hit) {
-        return res.status(200).json({ url: response.url, id: hit[0] });
+
+    const inHtml = html.match(PLACE_ID_RE);
+    if (inHtml) out.placeId = inHtml[1];
+
+    // Ohne Place ID wenigstens irgendeine Kennung mitgeben, damit das Frontend
+    // den bisherigen Maps-Link bauen kann statt gar nichts.
+    if (!out.placeId) {
+      const fallback = findId(finalUrl) || findId(html);
+      if (!fallback) {
+        return res.status(422).json({ error: "Kennung nicht gefunden", url: finalUrl });
       }
+      out.id = fallback;
     }
 
-    return res.status(422).json({ error: "Kennung nicht gefunden", url: response.url });
+    return res.status(200).json(out);
   } catch (err) {
     const aborted = err && err.name === "AbortError";
     return res.status(aborted ? 504 : 502).json({
