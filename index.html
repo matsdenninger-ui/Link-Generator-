@@ -319,7 +319,7 @@ ChIJN1t_tDeuEmsRUsoyG83frY4"></textarea>
       <button id="csv" hidden>Als CSV speichern</button>
       <button id="copyAll" hidden>Alle Bewertungslinks kopieren</button>
     </div>
-    <p class="hint">Kurzlinks wie <strong>maps.app.goo.gl/…</strong> lassen sich hier nicht auflösen. Kurzlink einmal im Browser öffnen und die lange Adresse aus der Adresszeile kopieren.</p>
+    <p class="hint">Kurzlinks wie <strong>maps.app.goo.gl/…</strong> werden automatisch aufgelöst. Das kann eine Sekunde dauern.</p>
   </div>
 
   <p class="count" id="count" hidden></p>
@@ -389,7 +389,12 @@ ChIJN1t_tDeuEmsRUsoyG83frY4"></textarea>
     var cid = line.match(/[?&]cid=(\d{5,})/) || (/^\d{10,}$/.test(line.trim()) ? [null, line.trim()] : null);
     if (cid) { out.cid = cid[1]; return out; }
 
-    out.error = /goo\.gl|maps\.app/.test(line) ? "kurzlink" : "unbekannt";
+    if (/goo\.gl|maps\.app/.test(line)) {
+      out.shortlink = true;
+      return out;
+    }
+
+    out.error = "unbekannt";
     return out;
   }
 
@@ -579,15 +584,48 @@ ChIJN1t_tDeuEmsRUsoyG83frY4"></textarea>
 
   document.getElementById("go").addEventListener("click", function () {
     var lines = input.value.split(/\r?\n/).map(function (l) { return l.trim(); }).filter(Boolean);
-    current = lines.map(function (l) {
-      var p = parse(l);
-      p.links = build(p);
-      return p;
+    var shortlinks = [];
+
+    // First pass: identify shortlinks
+    lines.forEach(function (l, i) {
+      if (/goo\.gl|maps\.app/.test(l)) {
+        shortlinks.push({ index: i, url: l });
+      }
     });
-    render();
-    starsEl.classList.remove("lit");
-    void starsEl.offsetWidth;
-    if (current.some(function (r) { return r.links && !r.links.partial; })) starsEl.classList.add("lit");
+
+    // Resolve shortlinks if any
+    if (shortlinks.length > 0) {
+      Promise.all(shortlinks.map(function (sl) {
+        return fetch("/api/resolve-shortlink?url=" + encodeURIComponent(sl.url))
+          .then(function (r) { return r.json(); })
+          .then(function (data) {
+            if (data.url) {
+              lines[sl.index] = data.url;
+            }
+            return null;
+          })
+          .catch(function (e) {
+            console.warn("Failed to resolve shortlink:", e);
+          });
+      })).then(function () {
+        // Parse and process after all shortlinks are resolved
+        processLinks(lines);
+      });
+    } else {
+      processLinks(lines);
+    }
+
+    function processLinks(resolvedLines) {
+      current = resolvedLines.map(function (l) {
+        var p = parse(l);
+        p.links = build(p);
+        return p;
+      });
+      render();
+      starsEl.classList.remove("lit");
+      void starsEl.offsetWidth;
+      if (current.some(function (r) { return r.links && !r.links.partial; })) starsEl.classList.add("lit");
+    }
   });
 
   document.getElementById("clear").addEventListener("click", function () {
