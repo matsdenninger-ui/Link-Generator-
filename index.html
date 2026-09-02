@@ -262,17 +262,17 @@
   .card-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
 
   .saved-item {
-    display: flex;
-    gap: 10px;
-    align-items: center;
-    justify-content: space-between;
+    display: block;
     padding: 10px 0;
     border-bottom: 1px solid var(--border);
   }
   .saved-item:last-child { border-bottom: none; }
-  .saved-item span { font-size: 14px; }
+  .saved-item > span:first-child { font-size: 14px; display: block; margin-bottom: 6px; }
+  .saved-item > span:last-of-type { font-size: 13px; }
   .saved-item a { color: var(--gold-soft); font-size: 13px; }
   .saved-item a:hover { color: var(--gold-bright); }
+  .saved-item button { font-size: 12px; padding: 4px 10px; }
+  .saved-item .qr { margin-top: 10px; padding-top: 10px; }
 
   .empty { color: var(--text-muted); font-size: 14px; margin: 0; }
 
@@ -319,7 +319,7 @@ ChIJN1t_tDeuEmsRUsoyG83frY4"></textarea>
       <button id="csv" hidden>Als CSV speichern</button>
       <button id="copyAll" hidden>Alle Bewertungslinks kopieren</button>
     </div>
-    <p class="hint">Kurzlinks wie <strong>maps.app.goo.gl/…</strong> lassen sich hier nicht auflösen. Kurzlink einmal im Browser öffnen und die lange Adresse aus der Adresszeile kopieren.</p>
+    <p class="hint">Kurzlinks wie <strong>maps.app.goo.gl/…</strong> werden automatisch aufgelöst. Das kann eine Sekunde dauern.</p>
   </div>
 
   <p class="count" id="count" hidden></p>
@@ -389,7 +389,12 @@ ChIJN1t_tDeuEmsRUsoyG83frY4"></textarea>
     var cid = line.match(/[?&]cid=(\d{5,})/) || (/^\d{10,}$/.test(line.trim()) ? [null, line.trim()] : null);
     if (cid) { out.cid = cid[1]; return out; }
 
-    out.error = /goo\.gl|maps\.app/.test(line) ? "kurzlink" : "unbekannt";
+    if (/goo\.gl|maps\.app/.test(line)) {
+      out.shortlink = true;
+      return out;
+    }
+
+    out.error = "unbekannt";
     return out;
   }
 
@@ -579,15 +584,48 @@ ChIJN1t_tDeuEmsRUsoyG83frY4"></textarea>
 
   document.getElementById("go").addEventListener("click", function () {
     var lines = input.value.split(/\r?\n/).map(function (l) { return l.trim(); }).filter(Boolean);
-    current = lines.map(function (l) {
-      var p = parse(l);
-      p.links = build(p);
-      return p;
+    var shortlinks = [];
+
+    // First pass: identify shortlinks
+    lines.forEach(function (l, i) {
+      if (/goo\.gl|maps\.app/.test(l)) {
+        shortlinks.push({ index: i, url: l });
+      }
     });
-    render();
-    starsEl.classList.remove("lit");
-    void starsEl.offsetWidth;
-    if (current.some(function (r) { return r.links && !r.links.partial; })) starsEl.classList.add("lit");
+
+    // Resolve shortlinks if any
+    if (shortlinks.length > 0) {
+      Promise.all(shortlinks.map(function (sl) {
+        return fetch("/api/resolve-shortlink?url=" + encodeURIComponent(sl.url))
+          .then(function (r) { return r.json(); })
+          .then(function (data) {
+            if (data.url) {
+              lines[sl.index] = data.url;
+            }
+            return null;
+          })
+          .catch(function (e) {
+            console.warn("Failed to resolve shortlink:", e);
+          });
+      })).then(function () {
+        // Parse and process after all shortlinks are resolved
+        processLinks(lines);
+      });
+    } else {
+      processLinks(lines);
+    }
+
+    function processLinks(resolvedLines) {
+      current = resolvedLines.map(function (l) {
+        var p = parse(l);
+        p.links = build(p);
+        return p;
+      });
+      render();
+      starsEl.classList.remove("lit");
+      void starsEl.offsetWidth;
+      if (current.some(function (r) { return r.links && !r.links.partial; })) starsEl.classList.add("lit");
+    }
   });
 
   document.getElementById("clear").addEventListener("click", function () {
@@ -624,23 +662,48 @@ ChIJN1t_tDeuEmsRUsoyG83frY4"></textarea>
 
   function renderSaved() {
     if (!saved.length) {
-      savedEl.innerHTML = '<p class="empty">Noch nichts gespeichert. Bei jedem Ergebnis auf „Merken“ tippen.</p>';
+      savedEl.innerHTML = '<p class=”empty”>Noch nichts gespeichert. Bei jedem Ergebnis auf „Merken” tippen.</p>';
       return;
     }
     savedEl.innerHTML = saved.map(function (s, i) {
-      return '<div class="saved-item"><span>' + esc(s.name) + "</span>" +
-        '<span><a href="' + esc(s.write) + '" target="_blank" rel="noopener">Bewerten</a> · ' +
-        '<a href="' + esc(s.reviews) + '" target="_blank" rel="noopener">Ansehen</a> · ' +
-        '<button data-del="' + i + '">Entfernen</button></span></div>';
-    }).join("");
+      return '<div class=”saved-item”><span>' + esc(s.name) + “</span>” +
+        '<span><a href=”' + esc(s.write) + '” target=”_blank” rel=”noopener”>Bewerten</a> · ' +
+        '<a href=”' + esc(s.reviews) + '” target=”_blank” rel=”noopener”>Ansehen</a> · ' +
+        '<button data-saved-qr=”' + i + '”>QR</button> · ' +
+        '<button data-del=”' + i + '”>Entfernen</button></span>' +
+        '<div class=”qr” id=”saved-qr' + i + '”></div></div>';
+    }).join(“”);
   }
 
-  savedEl.addEventListener("click", function (ev) {
-    var b = ev.target.closest("button");
-    if (!b || b.dataset.del === undefined) return;
-    saved.splice(+b.dataset.del, 1);
-    persist();
-    renderSaved();
+  savedEl.addEventListener(“click”, function (ev) {
+    var b = ev.target.closest(“button”);
+    if (!b) return;
+
+    if (b.dataset.savedQr !== undefined) {
+      var idx = +b.dataset.savedQr;
+      var box = document.getElementById(“saved-qr” + idx);
+      if (box.classList.contains(“open”)) {
+        box.classList.remove(“open”);
+        b.textContent = “QR”;
+        return;
+      }
+      if (!box.dataset.built) {
+        var svg = qrSvg(saved[idx].write);
+        box.innerHTML = svg
+          ? svg + '<p class=”cap”>Führt direkt zum Bewertungsfenster.</p>'
+          : '<p class=”cap”>QR-Bibliothek nicht gefunden. Liegt vendor/qrcode.js im Projekt?</p>';
+        box.dataset.built = “1”;
+      }
+      box.classList.add(“open”);
+      b.textContent = “QR ausblenden”;
+      return;
+    }
+
+    if (b.dataset.del !== undefined) {
+      saved.splice(+b.dataset.del, 1);
+      persist();
+      renderSaved();
+    }
   });
 
   function persist() {
