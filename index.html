@@ -264,6 +264,19 @@
 
   .card-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
 
+  /* Warum es hier keinen QR-Code gibt und was dagegen hilft. */
+  .note {
+    margin: 14px 0 0;
+    padding: 11px 13px;
+    border: 1px solid var(--border);
+    border-left: 2px solid var(--wine-bright);
+    border-radius: var(--radius-inset);
+    background: linear-gradient(var(--wash-wine), var(--wash-wine));
+    color: var(--text-muted);
+    font-size: 12.5px;
+    line-height: 1.5;
+  }
+
   .saved-item {
     padding: 14px 0;
     border-bottom: 1px solid var(--border);
@@ -422,6 +435,14 @@ ChIJN1t_tDeuEmsRUsoyG83frY4"></textarea>
 
   /* ---------- Ausgabe ---------- */
 
+  /* Nur die aus einer Place ID gebaute search.google.com-Adresse öffnet das
+     Bewertungsfenster im normalen Browser. Die Maps-Variante aus einer
+     Hex-Kennung ist ein Deeplink in die App — dafür geben wir bewusst keinen
+     QR-Code aus, weil ein Aushang sonst bei jedem ohne App ins Leere führt. */
+  function appFree(url) {
+    return /^https:\/\/search\.google\.com\/local\/writereview/.test(url || "");
+  }
+
   function esc(s) {
     return String(s).replace(/[&<>"]/g, function (c) {
       return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c];
@@ -442,8 +463,11 @@ ChIJN1t_tDeuEmsRUsoyG83frY4"></textarea>
     }
 
     var ok = current.filter(function (r) { return r.links && !r.links.partial; }).length;
+    var qrReady = current.filter(function (r) { return r.links && appFree(r.links.write); }).length;
     countEl.hidden = false;
-    countEl.textContent = ok + " von " + current.length + " Zeilen vollständig umgewandelt";
+    // Der Zusatz erscheint nur, wenn nicht jede umgewandelte Zeile einen QR-Code trägt.
+    countEl.textContent = ok + " von " + current.length + " Zeilen vollständig umgewandelt" +
+      (qrReady < ok ? " · nur " + qrReady + " mit QR-Code" : "");
     csvBtn.hidden = ok === 0;
     copyAllBtn.hidden = ok === 0;
 
@@ -466,11 +490,17 @@ ChIJN1t_tDeuEmsRUsoyG83frY4"></textarea>
         html += '<p class="meta">' + esc(r.links.id) + "</p>";
         html += linkRow("Rezensionen ansehen", r.links.reviews);
         html += linkRow("Bewertung schreiben", r.links.write);
+        var qrOk = appFree(r.links.write);
         html += '<div class="card-actions">' +
-          '<button data-qr="' + idx + '">QR-Code für Bewertung</button>' +
+          (qrOk ? '<button data-qr="' + idx + '">QR-Code für Bewertung</button>' : "") +
           '<button data-save="' + idx + '">Merken</button>' +
-          '<button data-png="' + idx + '">QR als Bild laden</button></div>' +
-          '<div class="qr" id="qr' + idx + '"></div>';
+          (qrOk ? '<button data-png="' + idx + '">QR als Bild laden</button>' : "") +
+          "</div>";
+        html += qrOk
+          ? '<div class="qr" id="qr' + idx + '"></div>'
+          : '<p class="note">Kein QR-Code: zu diesem Eintrag wurde keine Place ID gefunden, ' +
+            'der Link oben öffnet nur die Maps-App. Den Eintrag in Google Maps aufrufen und ' +
+            'die vollständige Adresse aus der Adresszeile hier noch einmal einfügen.</p>';
       }
 
       el.innerHTML = html;
@@ -697,8 +727,10 @@ ChIJN1t_tDeuEmsRUsoyG83frY4"></textarea>
         '<div class="saved-actions">' +
           '<a class="btn" href="' + esc(s.write) + '" target="_blank" rel="noopener">Bewerten</a>' +
           '<a class="btn" href="' + esc(s.reviews) + '" target="_blank" rel="noopener">Ansehen</a>' +
-          '<button data-saved-qr="' + i + '">QR-Code</button>' +
-          '<button data-saved-png="' + i + '">QR als Bild</button>' +
+          (appFree(s.write)
+            ? '<button data-saved-qr="' + i + '">QR-Code</button>' +
+              '<button data-saved-png="' + i + '">QR als Bild</button>'
+            : "") +
           '<button data-del="' + i + '">Entfernen</button>' +
         "</div>" +
         '<div class="qr" id="saved-qr' + i + '"></div></div>';
